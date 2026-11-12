@@ -107,6 +107,10 @@ export class VoxelChunk {
 
     // Fully compute visible faces for all voxels. Should be used on initialization or a major change to the entire
     // chunk, but not when only a single or a few voxels are altered.
+    // TODO: Technically, for the inner part of a chunk, we should only need to look at a checkerboard of voxels, since
+    //  invisible faces are necessarily mutual between two adjacent voxels. I.e., if one voxel determines its +X face
+    //  should be hidden, then the -X face of the voxel in the +X direction should also be hidden. This would, however,
+    //  be significantly more complicated, and this isn't really a performance bottleneck.
     computeVisibleFaces() {
         for (let x = 0; x < this.spanX; x++)
         for (let y = 0; y < this.spanY; y++)
