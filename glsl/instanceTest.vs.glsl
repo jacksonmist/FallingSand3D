@@ -1,9 +1,6 @@
-out vec3 iColor;
-
-//in mat4 instanceMatrix;
-//in vec3 instanceColor;
+out vec3 norm;
 
 void main() {
-    iColor = instanceColor;
+    norm = instanceNormal;
     gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0f);
 }

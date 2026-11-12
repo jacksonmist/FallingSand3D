@@ -3,9 +3,9 @@ import * as THREE from 'three';
 export class VoxelChunk {
     static #FACE_GEOMETRY = new THREE.PlaneGeometry();
 
-    // Note that fromArray is column-major.
-    // Static matrices definitions which transform the basic PlaneGeometry to the proper position and orientation for
+    // Static matrix definitions which transform the basic PlaneGeometry to the proper position and orientation for
     // each face.
+    // Note that fromArray is column-major, so these appear transposed to what you might expect.
     static #MAT_PX = new THREE.Matrix4().fromArray([
         0, 0, -1, 0,
         0, 1, 0, 0,
@@ -43,14 +43,14 @@ export class VoxelChunk {
         0, 0, -0.5, 1
     ]);
 
-    static #BITMASK_FACES = 0b1111_1100_0000_0000;
-    static #BITMASK_ID = 0b0000_0011_1111_1111_1111;
-    static #FACE_PX = 0b1000_0000_0000_0000;
-    static #FACE_NX = 0b0100_0000_0000_0000;
-    static #FACE_PY = 0b0010_0000_0000_0000;
-    static #FACE_NY = 0b0001_0000_0000_0000;
-    static #FACE_PZ = 0b0000_1000_0000_0000;
-    static #FACE_NZ = 0b0100_0100_0000_0000;
+    static #BITMASK_FACES = 0b111111_0000000000;
+    static #BITMASK_ID = 0b00000_11111111111111;
+    static #FACE_PX = 0b100000_0000000000;
+    static #FACE_NX = 0b010000_0000000000;
+    static #FACE_PY = 0b001000_0000000000;
+    static #FACE_NY = 0b000100_0000000000;
+    static #FACE_PZ = 0b000010_0000000000;
+    static #FACE_NZ = 0b000001_0000000000;
 
     offsetX = 1;
     offsetY = 1;
@@ -63,11 +63,11 @@ export class VoxelChunk {
         this.size = spanX * spanY * spanZ;
 
         // Due to the use of instanced rendering, the maximum number of voxel faces must be set in advance.
-        // If none is provided, sets it to three times the number of voxels, which should be the maximum possible,
-        // where the chunk is filled with a 3D checkerboard of empty and nonempty voxels. This should ideally be set
-        // lower if possible to minimize memory usage since each maximum voxel face will require allocating about
-        // 76 bytes, which adds up quickly.
-        if (maxFaces === 0) this.maxFaces = this.size * 3;
+        // If none is provided, sets it to the maximum number of faces, which would be achieved when the whole volume
+        // is filled with a 3D checkerboard of empty and nonempty voxels. If you can be reasonably certain you won't
+        // have that, then this can be set lower, which will save some memory.
+        if (maxFaces <= 0) this.maxFaces = 6 * Math.ceil(this.size / 2);
+        else this.maxFaces = maxFaces;
 
         // Voxels are indexed linearly. The offset values are the index offset to move by 1 in each coordinate.
         // noinspection JSSuspiciousNameCombination
@@ -91,7 +91,18 @@ export class VoxelChunk {
         // From high to low bits, the directions are: +X, -X, +Y, -Y, +Z, -Z
         this.voxels = new Uint16Array(spanX * spanY * spanZ);
 
-        this.mesh = new THREE.InstancedMesh(VoxelChunk.#FACE_GEOMETRY, material, this.maxFaces);
+        const geometry = VoxelChunk.#FACE_GEOMETRY.clone();
+        // Injects an instanced attribute for the local-space normal of each face.
+        this.faceNormalBuffer = new THREE.InstancedBufferAttribute(new Float32Array(3 * this.maxFaces), 3);
+        geometry.setAttribute("instanceNormal", this.faceNormalBuffer);
+        // Automatically inserts the attribute into the vertex shader.
+        material.onBeforeCompile = function (shader) {
+            shader.vertexShader = `
+                in vec3 instanceNormal;
+                ${shader.vertexShader}
+            `
+        }
+        this.mesh = new THREE.InstancedMesh(geometry, material, this.maxFaces);
     }
 
     // Fully compute visible faces for all voxels. Should be used on initialization or a major change to the entire
@@ -146,6 +157,7 @@ export class VoxelChunk {
     // colorFunc() is called with the 10 bit ID of each nonempty voxel and should return a Color.
     constructMesh(colorFunc) {
         const mesh = this.mesh;
+        const faceNormalBuffer = this.faceNormalBuffer;
         mesh.count = 0;
         let totalFaces = 0;
 
@@ -165,6 +177,7 @@ export class VoxelChunk {
                 mesh.count++;
                 mesh.setMatrixAt(totalFaces, this.makeVoxelPositionMatrix(x, y, z).multiply(VoxelChunk.#MAT_PX));
                 mesh.setColorAt(totalFaces, color);
+                faceNormalBuffer.setXYZ(totalFaces, 1.0, 0.0, 0.0);
                 totalFaces++;
             }
 
@@ -172,6 +185,7 @@ export class VoxelChunk {
                 mesh.count++;
                 mesh.setMatrixAt(totalFaces, this.makeVoxelPositionMatrix(x, y, z).multiply(VoxelChunk.#MAT_NX));
                 mesh.setColorAt(totalFaces, color);
+                faceNormalBuffer.setXYZ(totalFaces, -1.0, 0.0, 0.0);
                 totalFaces++;
             }
 
@@ -179,6 +193,7 @@ export class VoxelChunk {
                 mesh.count++;
                 mesh.setMatrixAt(totalFaces, this.makeVoxelPositionMatrix(x, y, z).multiply(VoxelChunk.#MAT_PY));
                 mesh.setColorAt(totalFaces, color);
+                faceNormalBuffer.setXYZ(totalFaces, 0.0, 1.0, 0.0);
                 totalFaces++;
             }
 
@@ -186,6 +201,7 @@ export class VoxelChunk {
                 mesh.count++;
                 mesh.setMatrixAt(totalFaces, this.makeVoxelPositionMatrix(x, y, z).multiply(VoxelChunk.#MAT_NY));
                 mesh.setColorAt(totalFaces, color);
+                faceNormalBuffer.setXYZ(totalFaces, 0.0, -1.0, 0.0);
                 totalFaces++;
             }
 
@@ -193,6 +209,7 @@ export class VoxelChunk {
                 mesh.count++;
                 mesh.setMatrixAt(totalFaces, this.makeVoxelPositionMatrix(x, y, z).multiply(VoxelChunk.#MAT_PZ));
                 mesh.setColorAt(totalFaces, color);
+                faceNormalBuffer.setXYZ(totalFaces, 0.0, 0.0, 1.0);
                 totalFaces++;
             }
 
@@ -200,6 +217,7 @@ export class VoxelChunk {
                 mesh.count++;
                 mesh.setMatrixAt(totalFaces, this.makeVoxelPositionMatrix(x, y, z).multiply(VoxelChunk.#MAT_NZ));
                 mesh.setColorAt(totalFaces, color);
+                faceNormalBuffer.setXYZ(totalFaces, 0.0, 0.0, -1.0);
                 totalFaces++;
             }
         }
@@ -211,6 +229,7 @@ export class VoxelChunk {
 
         if (mesh.instanceMatrix) mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        faceNormalBuffer.needsUpdate = true;
 
         mesh.visible = true;
     }
@@ -218,7 +237,10 @@ export class VoxelChunk {
     // Makes a translation matrix which shifts from (0, 0, 0) to the position a voxel in this chunk should be at the
     // given coordinates.
     makeVoxelPositionMatrix(x, y, z) {
-        return new THREE.Matrix4().makeTranslation(this.posShiftX + x, this.posShiftY + y, this.posShiftZ + z);
+        return new THREE.Matrix4().makeTranslation(
+            -this.posShiftX + x,
+            -this.posShiftY + y,
+            -this.posShiftZ + z);
     }
 
     // Set the ID of voxel at given coordinates. Does nothing if coordinates are out of bounds.

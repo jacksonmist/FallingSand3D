@@ -28,8 +28,13 @@ const red = new THREE.Color(1.0, 0.0, 0.0);
 function color(id) { return red; }
 
 chunk.setVoxel(0, 0, 0, 1);
+chunk.setVoxel(1, 0, 0, 1);
 chunk.computeVisibleFaces();
 chunk.constructMesh(color);
+
+window.addEventListener("keyup", (event) => {
+    if (event.key === "w") material.wireframe = !material.wireframe;
+});
 
 scene.add(chunk.mesh);
 
